@@ -30,8 +30,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +40,35 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Logs and debug output
+*.log
+debug_output.txt
+worker_output*.txt
+worker_error.log
+status.log
+status.txt
+status.json
+status_v2.json
+checklist.log
+
+# Temp SQL files
+temp_*.sql
+fix-*.sql
+dump_source.sql
+
+# Temp debug/test files
+k-startup-debug.html
+nul
+check_db.js
+check_db_schema.ts
+check_env_vars.js
+test_upload_isolation.ts
+
+# AI agent tool directories
+.agent/
+.claude/
+.qoder/
+
+# Dual lockfile (using npm)
+pnpm-lock.yaml
