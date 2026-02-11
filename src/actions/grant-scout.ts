@@ -6,6 +6,7 @@ import { Errors, handleAPIError } from "@/lib/error-handler"
 import { enforceSchema, enforceSize, withRetry, withTimeout } from "@/lib/guard"
 import { createLogger } from "@/lib/logger"
 import { traced, tracedGenerateObject } from "@/lib/observability/langsmith-wrapper"
+import { requireActiveOrg } from "@/lib/org-context"
 import { enforceRateLimit } from "@/lib/rate-limit-redis"
 import { createClient } from "@/lib/supabase/server"
 import { UUIDSchema } from "@/lib/validation/schemas"
@@ -42,24 +43,8 @@ export async function createGrantApplication(input: unknown, opts?: { correlatio
     const logger = createLogger({ agent: 'grant-scout', correlationId: opts?.correlationId })
 
     try {
+        const { organization_id: organizationId } = await requireActiveOrg()
         const supabase = await createClient()
-        const { data: { user }, error: userError } = await supabase.auth.getUser()
-        if (userError || !user) {
-            throw Errors.unauthorized('Unauthorized: Please log in')
-        }
-
-        const { data: membership, error: membershipError } = await supabase
-            .from('organization_members')
-            .select('organization_id')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .single()
-
-        const organizationId = membership?.organization_id
-        if (membershipError || !organizationId) {
-            throw Errors.forbidden('Forbidden: You do not have an organization')
-        }
 
         await enforceRateLimit(`grant-scout:create:${organizationId}`, 10)
 
@@ -329,35 +314,29 @@ export const processGrantMatch = traced(
     }, { tags: ['agent', 'grant-scout'] })
 
 export async function approveGrantDraft(appId: string, finalDraft: string) {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const logger = createLogger({ agent: 'grant-scout:approve' })
 
     try {
-        if (!user) throw Errors.unauthorized()
+        // Verify resource access (handles auth check)
+        const auth = await requireResourceAccess('grant_applications', appId)
+        const supabase = await createClient()
 
-        // Verify resource access
-        const app = await requireResourceAccess('grant_applications', appId)
-
-        // Generate HWP (Simulated for now)
-        logger.info("Generating HWP file...", { appId })
-        // In a real scenario, this would call an external microservice
-        // const { generateHWP } = await import("@/lib/hwp-converter") 
-        // const hwpUrl = await generateHWP(finalDraft, app.startup_name)
+        logger.info("Approving grant draft", { appId, organizationId: auth.organizationId })
 
         const { error } = await supabase
             .from('grant_applications')
             .update({
                 status: 'COMPLETED',
                 generated_draft: finalDraft,
-                // In a real system, we save the file URL here
-                // download_url: hwpUrl 
             })
             .eq('id', appId)
+            .eq('organization_id', auth.organizationId)
 
         if (error) throw error
 
         return { success: true }
     } catch (err) {
-        return { success: false, error: "Failed to approve draft" }
+        const sanitized = handleAPIError(err, { service: 'grant-scout:approve', appId })
+        return { success: false, error: sanitized.error.message }
     }
 }

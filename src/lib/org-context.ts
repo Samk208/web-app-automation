@@ -44,3 +44,55 @@ export async function getActiveOrg(): Promise<OrgContext> {
     return { organization_id: DEMO_ORG_ID };
 }
 
+/**
+ * Secure version of getActiveOrg that throws on missing auth or org.
+ * Use this in server actions that create resources.
+ * Never falls back to DEMO_ORG_ID.
+ */
+export async function requireActiveOrg(): Promise<OrgContext & { userId: string }> {
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+            cookies: {
+                getAll() {
+                    return cookieStore.getAll();
+                },
+                setAll(cookiesToSet) {
+                    try {
+                        cookiesToSet.forEach(({ name, value, options }) =>
+                            cookieStore.set(name, value, options)
+                        );
+                    } catch {
+                        // ignore for server components
+                    }
+                },
+            },
+        }
+    );
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+        throw new Error("Unauthorized: Please log in");
+    }
+
+    const { data: membership, error: membershipError } = await supabase
+        .from("organization_members")
+        .select("organization_id, role")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .single();
+
+    if (membershipError || !membership?.organization_id) {
+        throw new Error("Forbidden: You do not have an organization");
+    }
+
+    return {
+        userId: user.id,
+        organization_id: membership.organization_id,
+        role: membership.role,
+    };
+}
+

@@ -3,6 +3,7 @@
 import { requireResourceAccess } from "@/lib/auth/authorization"
 import { Errors, handleAPIError } from "@/lib/error-handler"
 import { createLogger } from "@/lib/logger"
+import { requireActiveOrg } from "@/lib/org-context"
 import { enforceRateLimit } from "@/lib/rate-limit-redis"
 import { createClient } from "@/lib/supabase/server"
 import { URLSchema, UUIDSchema } from "@/lib/validation/schemas"
@@ -75,26 +76,11 @@ export async function processHwpJob(jobId: string) {
 }
 
 export async function getHwpJobStatus(fileUrl: string) {
-    const supabase = await createClient()
-
     try {
         const url = URLSchema.parse(fileUrl)
 
-        const authUser = await supabase.auth.getUser()
-        if (authUser.error || !authUser.data.user) {
-            return null
-        }
-
-        const { data: membership } = await supabase
-            .from('memberships')
-            .select('organization_id')
-            .eq('user_id', authUser.data.user.id)
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .single()
-
-        const organizationId = membership?.organization_id
-        if (!organizationId) return null
+        const { organization_id: organizationId } = await requireActiveOrg()
+        const supabase = await createClient()
 
         await enforceRateLimit(`hwp:status:${organizationId}`, 60)
 

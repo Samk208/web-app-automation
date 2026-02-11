@@ -6,6 +6,7 @@ import { Errors, handleAPIError } from "@/lib/error-handler"
 import { ensureMockDataAllowed } from "@/lib/feature-flags"
 import { createLogger } from "@/lib/logger"
 import { traced, tracedGenerateObject } from "@/lib/observability/langsmith-wrapper"
+import { requireActiveOrg } from "@/lib/org-context"
 import { enforceRateLimit } from "@/lib/rate-limit-redis"
 import { createClient } from "@/lib/supabase/server"
 import { URLSchema, UUIDSchema } from "@/lib/validation/schemas"
@@ -28,24 +29,8 @@ export async function createSEOAudit(input: unknown, opts?: { correlationId?: st
     const logger = createLogger({ agent: 'naver-seo', correlationId: opts?.correlationId })
 
     try {
+        const { organization_id: organizationId } = await requireActiveOrg()
         const supabase = await createClient()
-        const { data: { user }, error: userError } = await supabase.auth.getUser()
-        if (userError || !user) {
-            throw Errors.unauthorized('Unauthorized: Please log in')
-        }
-
-        const { data: membership, error: membershipError } = await supabase
-            .from('organization_members')
-            .select('organization_id')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .single()
-
-        const organizationId = membership?.organization_id
-        if (membershipError || !organizationId) {
-            throw Errors.forbidden('Forbidden: You do not have an organization')
-        }
 
         await enforceRateLimit(`naver-seo:create:${organizationId}`, 10)
 
