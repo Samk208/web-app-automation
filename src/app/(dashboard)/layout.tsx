@@ -34,7 +34,7 @@ export default async function DashboardLayout({
     // Auto-Join Logic for MVP
     // Check if user is a member of the demo org
     const { data: membership } = await supabase
-        .from('memberships')
+        .from('organization_members')
         .select('id')
         .eq('user_id', user.id)
         .eq('organization_id', DEMO_ORG_ID)
@@ -42,7 +42,7 @@ export default async function DashboardLayout({
 
     if (!membership) {
         // Join the demo org
-        await supabase.from('memberships').insert({
+        await supabase.from('organization_members').insert({
             organization_id: DEMO_ORG_ID,
             user_id: user.id,
             role: 'owner' // Give them owner power for the demo

@@ -57,7 +57,7 @@ export default function SmartFactoryPage() {
             const userId = sessionData.session?.user?.id
             if (userId) {
                 const { data: membership } = await supabase
-                    .from('memberships')
+                    .from('organization_members')
                     .select('organization_id')
                     .eq('user_id', userId)
                     .order('created_at', { ascending: true })

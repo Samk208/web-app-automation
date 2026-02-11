@@ -20,7 +20,7 @@ export async function POST(request: Request) {
         const supabase = await createClient();
 
         const { data: membership, error: membershipError } = await supabase
-            .from('memberships')
+            .from('organization_members')
             .select('organization_id')
             .eq('user_id', auth.userId)
             .order('created_at', { ascending: true })
