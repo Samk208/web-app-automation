@@ -262,7 +262,9 @@ export function validateInput<T>(schema: z.Schema<T>, data: unknown): T {
         return schema.parse(data);
     } catch (error) {
         if (error instanceof z.ZodError) {
-            const errors = error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ');
+            // Zod v4 uses .issues instead of .errors
+            const issues = error.issues || (error as any).errors || [];
+            const errors = issues.map((e: any) => `${(e.path || []).join('.')}: ${e.message}`).join(', ');
             throw new Error(`Validation failed: ${errors}`);
         }
         throw error;
@@ -282,8 +284,10 @@ export function safeValidate<T>(
         return { success: true, data: result.data };
     }
 
+    // Zod v4 uses .issues instead of .errors on the error object
+    const issues = result.error?.issues || (result.error as any)?.errors || [];
     return {
         success: false,
-        errors: result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`)
+        errors: issues.map((e: any) => `${(e.path || []).join('.')}: ${e.message}`)
     };
 }
