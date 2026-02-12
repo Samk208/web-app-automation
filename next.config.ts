@@ -10,7 +10,30 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ['lucide-react', '@supabase/supabase-js'],
   },
 
+  // Image optimization — Netlify handles this automatically via plugin,
+  // but we define allowed remote patterns for any future external images.
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '*.supabase.co',
+        pathname: '/storage/v1/object/public/**',
+      },
+    ],
+  },
 
+  // Logging: reduce noise in production, verbose in development
+  logging: {
+    fetches: {
+      fullUrl: process.env.NODE_ENV === 'development',
+    },
+  },
+
+  // Powered-by header removal (security best practice)
+  poweredByHeader: false,
+
+  // Strict-mode for catching issues early in development
+  reactStrictMode: true,
 
   // Webpack configuration for better chunk handling
   webpack: (config, { isServer }) => {

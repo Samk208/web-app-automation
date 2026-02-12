@@ -14,38 +14,54 @@ const fontMono = JetBrains_Mono({
   subsets: ["latin"],
 });
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ai-automation.agency";
+
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_URL || "http://localhost:3000"),
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: "AI Automation Agency | Agentic OS",
-    template: "%s | AI Automation Agency",
+    default: "WonLink AI — Automation Agency for Korean Businesses",
+    template: "%s | WonLink AI",
   },
-  description: "Enterprise-grade AI agents for International Trade, Cross-Border E-commerce, and Government Validation. Build autonomous workflows with self-correcting logic.",
-  keywords: ["AI Agents", "Automation Agency", "Deep Tech", "Export Compliance", "Cross-Border Ecommerce", "Agentic Workflows", "Self-Correcting AI"],
-  authors: [{ name: "AI Automation Agency" }],
-  creator: "AI Automation Agency",
+  description:
+    "Enterprise-grade AI agents for International Trade, Cross-Border E-commerce, and Government Compliance. Autonomous workflows with self-correcting logic for Korean businesses.",
+  keywords: [
+    "AI Agents",
+    "Korean Business Automation",
+    "WonLink",
+    "Export Compliance",
+    "Cross-Border Ecommerce",
+    "Agentic Workflows",
+    "K-Startup",
+    "Naver SEO",
+    "Grant Scout",
+  ],
+  authors: [{ name: "WonLink AI" }],
+  creator: "WonLink AI",
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://ai-automation.agency",
-    title: "AI Automation Agency | Agentic OS",
-    description: "The Operating System for Enterprise Autonomy. Deploy agents that Plan, Reason, and Verify.",
-    siteName: "AI Automation Agency",
+    alternateLocale: "ko_KR",
+    url: SITE_URL,
+    title: "WonLink AI — Automation Agency for Korean Businesses",
+    description:
+      "The Operating System for Enterprise Autonomy. Deploy agents that Plan, Reason, and Verify.",
+    siteName: "WonLink AI",
     images: [
       {
-        url: "/og-image.jpg", // We need to ensure this exists or use a placeholder
+        url: "/og-image.jpg",
         width: 1200,
         height: 630,
-        alt: "AI Automation Agency - Deep Tech Platform",
+        alt: "WonLink AI — Automation Agency Platform",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "AI Automation Agency | Agentic OS",
-    description: "The Operating System for Enterprise Autonomy. Deploy agents that Plan, Reason, and Verify.",
+    title: "WonLink AI — Automation Agency for Korean Businesses",
+    description:
+      "The Operating System for Enterprise Autonomy. Deploy agents that Plan, Reason, and Verify.",
     images: ["/og-image.jpg"],
-    creator: "@aiautoagency",
+    creator: "@wonlink_ai",
   },
   robots: {
     index: true,

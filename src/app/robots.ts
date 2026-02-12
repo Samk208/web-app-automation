@@ -1,12 +1,16 @@
 import { MetadataRoute } from 'next'
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://ai-automation.agency'
+
 export default function robots(): MetadataRoute.Robots {
     return {
-        rules: {
-            userAgent: '*',
-            allow: '/',
-            disallow: '/dashboard/',
-        },
-        sitemap: 'https://ai-automation.agency/sitemap.xml',
+        rules: [
+            {
+                userAgent: '*',
+                allow: '/',
+                disallow: ['/dashboard/', '/api/', '/auth/'],
+            },
+        ],
+        sitemap: `${SITE_URL}/sitemap.xml`,
     }
 }

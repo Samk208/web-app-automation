@@ -1,24 +1,37 @@
 # =============================================================================
 # Netlify Configuration — WonLink AI Automation Agency
 # =============================================================================
-# Next.js 16 on Netlify with the Next.js Runtime (auto-detected).
-# See: https://docs.netlify.com/frameworks/next-js/overview/
+# Hybrid site: marketing website + authenticated application + API routes.
+# Next.js 16 with SSR on Netlify Functions, static pages at the edge.
 # =============================================================================
 
 [build]
   command = "npm run build"
   publish = ".next"
 
-# Environment variables set at build time
 [build.environment]
   NODE_VERSION = "20"
   NEXT_TELEMETRY_DISABLED = "1"
 
-# Redirect all requests to the Next.js handler (SSR/ISR)
+# Next.js runtime — handles SSR, ISR, API routes, middleware
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-# Headers for security hardening
+# =============================================================================
+# FUNCTIONS — SSR / API route configuration
+# =============================================================================
+[functions]
+  # Increase timeout for AI agent routes (default 10s is too low for LLM calls)
+  external_node_modules = ["playwright"]
+
+# Netlify Functions timeout: Next.js SSR + API routes
+# Default is 10s, AI agents need more headroom
+[functions."*"]
+  timeout = 30
+
+# =============================================================================
+# SECURITY HEADERS — applied to all routes
+# =============================================================================
 [[headers]]
   for = "/*"
   [headers.values]
@@ -27,15 +40,104 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
     X-XSS-Protection = "1; mode=block"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
 
-# Cache static assets aggressively
+# =============================================================================
+# WEBSITE — static marketing pages (cached aggressively at the CDN edge)
+# =============================================================================
+
+# Homepage, features, pricing, blog, docs — static, long cache
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/features"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/pricing"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/blog"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/docs"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, stale-while-revalidate=86400"
+
+# =============================================================================
+# APPLICATION — dashboard routes must never be cached by CDN
+# =============================================================================
+[[headers]]
+  for = "/dashboard/*"
+  [headers.values]
+    Cache-Control = "private, no-cache, no-store, must-revalidate"
+    X-Robots-Tag = "noindex, nofollow"
+
+# =============================================================================
+# API — no caching, CORS headers for API routes
+# =============================================================================
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Cache-Control = "no-store"
+    X-Robots-Tag = "noindex"
+
+# =============================================================================
+# STATIC ASSETS — immutable long-term cache
+# =============================================================================
 [[headers]]
   for = "/_next/static/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
-# Cache images
 [[headers]]
   for = "/images/*"
   [headers.values]
     Cache-Control = "public, max-age=86400, stale-while-revalidate=604800"
+
+[[headers]]
+  for = "/*.ico"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+# =============================================================================
+# REDIRECTS — auth flows, legacy paths, trailing slashes
+# =============================================================================
+
+# Trailing slash normalization
+[[redirects]]
+  from = "/dashboard/"
+  to = "/dashboard"
+  status = 301
+
+# Legacy path fix (some pages link to /auth/login)
+[[redirects]]
+  from = "/auth/login"
+  to = "/login"
+  status = 301
+
+# Ensure sign-in goes to login
+[[redirects]]
+  from = "/signin"
+  to = "/login"
+  status = 301
+
+[[redirects]]
+  from = "/signup"
+  to = "/login"
+  status = 301
+
+# SEO: www to non-www (uncomment and customize when domain is set up)
+# [[redirects]]
+#   from = "https://www.wonlink.ai/*"
+#   to = "https://wonlink.ai/:splat"
+#   status = 301
+#   force = true
