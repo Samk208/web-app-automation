@@ -30,8 +30,8 @@ export async function fetchActiveGrants(sector: string): Promise<GrantProgram[]>
             // Placeholder: In production, implementing the actual K-Startup OpenAPI request logic
             // const apiRes = await fetch(`http://apis.data.go.kr/...`)
             logger.info("K-Startup API configured, but specific endpoint implementation pending. Falling back to Perplexity.")
-        } catch (err) {
-            logger.warn("K-Startup API failed, falling back", err)
+        } catch (err: unknown) {
+            logger.warn("K-Startup API failed, falling back", { error: String(err) })
         }
     }
 

@@ -202,7 +202,7 @@ export async function getWorkflowStats(organizationId: string) {
     })
 
     if (error) {
-      logger.warn("Stats RPC not available, using basic query", error)
+      logger.warn("Stats RPC not available, using basic query", { error: error.message })
 
       // Fallback to basic query
       const { data: workflows } = await supabase

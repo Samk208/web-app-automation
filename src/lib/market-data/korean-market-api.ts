@@ -59,7 +59,7 @@ function extractNumbersFromText(text: string, source: string) {
 
     // Look for Trillion/Billion Won
     const tamMatch = text.match(/([\d,]+)\s*(?:trillion|billion|조|억)/i);
-    let tam = 50000000000; // 50B default
+    const tam = 50000000000; // 50B default
     if (tamMatch) {
         // logic to parse would go here, simplified for robustness:
         // We'll trust the Writer Agent to use the TEXT content more than these numbers,

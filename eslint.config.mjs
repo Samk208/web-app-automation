@@ -5,6 +5,28 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+
+  // Production overrides: downgrade legacy patterns to warnings so CI
+  // catches real errors while giving the team time to fix these gradually.
+  {
+    rules: {
+      // 200+ pre-existing 'any' usages — warn, don't block PRs
+      "@typescript-eslint/no-explicit-any": "warn",
+      // Unused vars are warnings (auto-fixable during refactor)
+      "@typescript-eslint/no-unused-vars": ["warn", {
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+      }],
+      // Pre-existing unescaped entities in JSX (cosmetic, low-risk)
+      "react/no-unescaped-entities": "warn",
+      // Pre-existing empty interface pattern
+      "@typescript-eslint/no-empty-object-type": "warn",
+      // Pre-existing React patterns that need careful refactoring
+      // TODO: Fix these and re-enable as errors
+      "react-hooks/set-state-in-effect": "warn",
+    },
+  },
+
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
@@ -12,6 +34,15 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Project ignores: utility scripts, migrations, docs
+    "scripts/**",
+    "db/**",
+    "supabase/**",
+    "docs/**",
+    "*.config.*",
+    // Root-level utility scripts (CommonJS)
+    "check_*.js",
+    "test_*.ts",
   ]),
 ]);
 

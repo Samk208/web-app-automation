@@ -17,24 +17,30 @@ export function createLogger(base: { agent: string; correlationId?: string; cont
     const correlationId = base.correlationId || crypto.randomUUID();
     const baseMeta = { agent: base.agent, correlationId, ...(base.context || {}) };
 
-    const log = (level: LogLevel, message: string, meta?: LogMeta) => {
+    const normalizeMeta = (meta: unknown): LogMeta => {
+        if (meta == null) return {};
+        if (typeof meta === "object" && !Array.isArray(meta)) return meta as LogMeta;
+        return { detail: serializeError(meta) };
+    };
+
+    const log = (level: LogLevel, message: string, meta?: unknown) => {
         console.log(
             JSON.stringify({
                 level,
                 message,
                 ts: now(),
                 ...baseMeta,
-                ...(meta || {}),
+                ...normalizeMeta(meta),
             })
         );
     };
 
     return {
         correlationId,
-        info: (message: string, meta?: LogMeta) => log("info", message, meta),
-        warn: (message: string, meta?: LogMeta) => log("warn", message, meta),
+        info: (message: string, meta?: unknown) => log("info", message, meta),
+        warn: (message: string, meta?: unknown) => log("warn", message, meta),
         error: (message: string, err?: unknown, meta?: LogMeta) =>
-            log("error", message, { ...meta, error: serializeError(err) }),
+            log("error", message, { ...normalizeMeta(meta), error: serializeError(err) }),
     };
 }
 

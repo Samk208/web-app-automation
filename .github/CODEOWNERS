@@ -1,0 +1,30 @@
+# =============================================================================
+# CODEOWNERS — WonLink AI Automation Agency
+# =============================================================================
+# These owners are automatically requested for review when a PR touches
+# files matching the patterns below.
+#
+# Syntax: pattern  @owner1 @owner2
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+# =============================================================================
+
+# Default owner for everything
+*                           @Samk208
+
+# Security-critical paths require explicit review
+src/lib/auth/               @Samk208
+src/lib/rate-limit*.ts      @Samk208
+src/lib/validation/         @Samk208
+src/lib/error-handler.ts    @Samk208
+src/middleware.ts            @Samk208
+
+# Agent actions
+src/actions/                @Samk208
+
+# API routes
+src/app/api/                @Samk208
+
+# Infrastructure & CI
+.github/                    @Samk208
+next.config.ts              @Samk208
+package.json                @Samk208

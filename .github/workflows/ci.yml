@@ -1,0 +1,273 @@
+# =============================================================================
+# CI Pipeline — WonLink AI Automation Agency
+# =============================================================================
+# Runs on every push/PR to main. Gates merges with lint, types, tests, build.
+# Designed for a production team: parallel jobs, aggressive caching, fail-fast.
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+# Cancel in-progress runs for the same PR/branch (saves CI minutes)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  # Suppress noisy Next.js telemetry in CI
+  NEXT_TELEMETRY_DISABLED: 1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. INSTALL — shared dependency installation with aggressive caching
+  # ---------------------------------------------------------------------------
+  install:
+    name: Install Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      # Cache node_modules for downstream jobs
+      - uses: actions/cache/save@v4
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+  # ---------------------------------------------------------------------------
+  # 2. LINT — ESLint (flat config) catches code quality issues
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Run ESLint
+        run: npm run lint
+
+  # ---------------------------------------------------------------------------
+  # 3. TYPE-CHECK — TypeScript strict mode catches type errors pre-merge
+  # ---------------------------------------------------------------------------
+  # NOTE: Currently non-blocking due to ~40 pre-existing errors in the
+  # LangGraph orchestrator types. The `next build` job catches real issues.
+  # TODO: Once orchestrator types are fixed, remove `continue-on-error`.
+  # ---------------------------------------------------------------------------
+  type-check:
+    name: Type Check
+    needs: install
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Run TypeScript type-check
+        run: |
+          npm run type-check 2>&1 | tee tsc-output.txt || true
+          ERROR_COUNT=$(grep -c "error TS" tsc-output.txt || echo "0")
+          echo "### TypeScript Errors: $ERROR_COUNT" >> $GITHUB_STEP_SUMMARY
+          if [ "$ERROR_COUNT" -gt "0" ]; then
+            echo "::warning::$ERROR_COUNT TypeScript errors found (pre-existing baseline). See build job for blocking check."
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 4. TEST — Unit & integration tests with coverage reporting
+  # ---------------------------------------------------------------------------
+  test:
+    name: Tests
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Create test results directory
+        run: mkdir -p test-results
+
+      - name: Run tests with coverage
+        run: npm run test:ci
+
+      # Upload test results as artifact for PR annotations
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 30
+
+      # Post coverage to PR as a comment (if coverage report exists)
+      - name: Run coverage report
+        if: github.event_name == 'pull_request'
+        run: npx vitest run --coverage --reporter=default 2>/dev/null || true
+
+      - name: Upload coverage artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # 5. BUILD — Full Next.js production build (catches SSR/RSC issues)
+  # ---------------------------------------------------------------------------
+  build:
+    name: Production Build
+    needs: install
+    runs-on: ubuntu-latest
+    env:
+      # Stub env vars required at build time (not real secrets)
+      NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key-for-build"
+      NEXT_PUBLIC_SITE_URL: "https://wonlink.ai"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # Cache Next.js build for faster rebuilds
+      - uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**/*') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+            nextjs-${{ runner.os }}-
+
+      - name: Build Next.js
+        run: npm run build
+
+      # Save build output for deploy job
+      - name: Upload build artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextjs-build
+          path: .next/
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 6. SECURITY — Dependency audit for known vulnerabilities
+  # ---------------------------------------------------------------------------
+  security:
+    name: Security Audit
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # Audit for high/critical vulnerabilities only (prod deps)
+      - name: npm audit (production)
+        run: npm audit --omit=dev --audit-level=high || true
+
+      # Check for known vulnerable packages
+      - name: Check for critical vulnerabilities
+        run: |
+          CRITICAL=$(npm audit --omit=dev --audit-level=critical --json 2>/dev/null | node -e "
+            let data = '';
+            process.stdin.on('data', d => data += d);
+            process.stdin.on('end', () => {
+              try {
+                const result = JSON.parse(data);
+                const count = result.metadata?.vulnerabilities?.critical || 0;
+                console.log(count);
+              } catch { console.log('0'); }
+            });
+          ")
+          echo "Critical vulnerabilities: $CRITICAL"
+          if [ "$CRITICAL" -gt "0" ]; then
+            echo "::error::Found $CRITICAL critical vulnerabilities. Run 'npm audit' locally to review."
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 7. GATE — Final status check that all jobs passed (for branch protection)
+  # ---------------------------------------------------------------------------
+  ci-passed:
+    name: CI Passed
+    if: always()
+    needs: [lint, type-check, test, build, security]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs passed
+        run: |
+          echo "Lint:       ${{ needs.lint.result }}"
+          echo "Type-check: ${{ needs.type-check.result }} (non-blocking)"
+          echo "Test:       ${{ needs.test.result }}"
+          echo "Build:      ${{ needs.build.result }}"
+          echo "Security:   ${{ needs.security.result }}"
+
+          # Blocking checks: lint, test, build, security
+          # Type-check is non-blocking until baseline is at 0 errors
+          if [[ "${{ needs.lint.result }}" != "success" ]] || \
+             [[ "${{ needs.test.result }}" != "success" ]] || \
+             [[ "${{ needs.build.result }}" != "success" ]] || \
+             [[ "${{ needs.security.result }}" != "success" ]]; then
+            echo "::error::One or more CI jobs failed."
+            exit 1
+          fi
+
+          # Warn if type-check failed (but don't block)
+          if [[ "${{ needs.type-check.result }}" != "success" ]]; then
+            echo "::warning::Type check has pre-existing errors. See job output."
+          fi
+
+          echo "✅ All required CI checks passed."

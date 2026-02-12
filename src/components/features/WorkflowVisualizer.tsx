@@ -72,12 +72,12 @@ export function WorkflowVisualizer({ className }: { className?: string }) {
 
             {/* Nodes Layer */}
             <div className="absolute inset-0">
-                {NODES.map((node) => (
+                {NODES.map((node, index) => (
                     <motion.div
                         key={node.id}
                         initial={{ scale: 0, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
-                        transition={{ type: "spring", delay: Math.random() * 0.5 }}
+                        transition={{ type: "spring", delay: index * 0.08 }}
                         className="absolute cursor-pointer"
                         style={{ left: node.x, top: node.y }}
                         onClick={() => setActiveNode(node.id)}

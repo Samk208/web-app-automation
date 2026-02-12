@@ -1,0 +1,194 @@
+# =============================================================================
+# Deploy Pipeline — WonLink AI Automation Agency
+# =============================================================================
+# Deploys to Vercel on merge to main (production) or on PR (preview).
+# Requires VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID as repo secrets.
+# If these are not configured, the deploy jobs are skipped gracefully.
+# =============================================================================
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # PREVIEW DEPLOY — on pull requests
+  # ---------------------------------------------------------------------------
+  deploy-preview:
+    name: Deploy Preview
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    environment:
+      name: preview
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Vercel secrets
+        id: check-secrets
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "::warning::VERCEL_TOKEN not configured. Skipping preview deploy."
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.check-secrets.outputs.configured == 'true'
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Vercel CLI
+        if: steps.check-secrets.outputs.configured == 'true'
+        run: npm i -g vercel@latest
+
+      - name: Pull Vercel environment
+        if: steps.check-secrets.outputs.configured == 'true'
+        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build preview
+        if: steps.check-secrets.outputs.configured == 'true'
+        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy preview
+        id: deploy
+        if: steps.check-secrets.outputs.configured == 'true'
+        run: |
+          URL=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "### 🔗 Preview Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** $URL" >> $GITHUB_STEP_SUMMARY
+
+      # Post the preview URL as a PR comment
+      - name: Comment preview URL on PR
+        if: steps.check-secrets.outputs.configured == 'true' && steps.deploy.outputs.url
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = '${{ steps.deploy.outputs.url }}';
+            const body = `### 🚀 Preview Deployment Ready\n\n**URL:** ${url}\n\n> Auto-deployed by CI on commit \`${context.sha.substring(0, 7)}\``;
+
+            // Find existing bot comment to update instead of spamming
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Preview Deployment Ready')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  # ---------------------------------------------------------------------------
+  # PRODUCTION DEPLOY — on merge to main
+  # ---------------------------------------------------------------------------
+  deploy-production:
+    name: Deploy Production
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Vercel secrets
+        id: check-secrets
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "::warning::VERCEL_TOKEN not configured. Skipping production deploy."
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.check-secrets.outputs.configured == 'true'
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Vercel CLI
+        if: steps.check-secrets.outputs.configured == 'true'
+        run: npm i -g vercel@latest
+
+      - name: Pull Vercel environment
+        if: steps.check-secrets.outputs.configured == 'true'
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build production
+        if: steps.check-secrets.outputs.configured == 'true'
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy to production
+        id: deploy
+        if: steps.check-secrets.outputs.configured == 'true'
+        run: |
+          URL=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "### 🚀 Production Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** $URL" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # POST-DEPLOY SMOKE — basic health check after production deploy
+  # ---------------------------------------------------------------------------
+  smoke-test:
+    name: Post-Deploy Smoke Test
+    needs: deploy-production
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check deploy secrets
+        id: check-secrets
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Wait for deployment propagation
+        if: steps.check-secrets.outputs.configured == 'true'
+        run: sleep 15
+
+      - name: Health check
+        if: steps.check-secrets.outputs.configured == 'true' && vars.PRODUCTION_URL
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ vars.PRODUCTION_URL }}" || echo "000")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" -lt "200" ] || [ "$STATUS" -ge "400" ]; then
+            echo "::error::Health check failed with status $STATUS"
+            exit 1
+          fi
+          echo "✅ Health check passed (HTTP $STATUS)"

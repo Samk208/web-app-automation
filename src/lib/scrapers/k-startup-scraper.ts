@@ -92,7 +92,7 @@ export class KStartupScraper {
                     let titleEl = card.querySelector('.tit_wrap p')
                     let dateEl = card.querySelector('.ann_top .right p.txt') // "마감일자 2025-01-01"
                     let orgEl = card.querySelector('.ann_bot ul li:nth-child(2)') // Organization is usually 2nd item
-                    let linkEl = card.querySelector('a[href^="javascript:go_view"]')
+                    const linkEl = card.querySelector('a[href^="javascript:go_view"]')
 
                     // 2. Fallback to Table Layout (if view changes)
                     if (!titleEl) titleEl = card.querySelector('.subject a');

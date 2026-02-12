@@ -167,6 +167,6 @@ export async function tracedGenerateObject<T>(
 }
 
 // Re-export specific traceable wrapper for AI SDK if we want granular tracing
-export const traceAI = traceable(async (fn: Function, ...args: any[]) => {
+export const traceAI = traceable(async (fn: (...a: unknown[]) => unknown, ...args: unknown[]) => {
     return await fn(...args)
 }, { name: "AI_Generation" })

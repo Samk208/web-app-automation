@@ -140,8 +140,8 @@ export const processGrantMatch = traced(
 
                 if (rpcError) throw rpcError
                 if (vectorMatches) relevantPrograms = vectorMatches
-            } catch (e) {
-                logger.warn("Vector search failed, falling back to legacy filter", e)
+            } catch (e: unknown) {
+                logger.warn("Vector search failed, falling back to legacy filter", { error: String(e) })
                 const { data: all } = await supabase.from('startup_programs').select('*')
                 relevantPrograms = all?.filter(p =>
                     (p.category && techSector.includes(p.category)) ||
@@ -212,7 +212,7 @@ export const processGrantMatch = traced(
                 }, { organizationId: auth.organizationId, agentName: "grant-scout-drafter" }),
                     { retries: 2 }),
                 45_000
-            )
+            ) as { object: z.infer<typeof GrantResultSchema> }
 
             let finalDraft = draftResult.object.draft
             const finalMatches = draftResult.object.matched_programs
@@ -256,7 +256,7 @@ export const processGrantMatch = traced(
                     model: defaultModel,
                     schema: CriticSchema,
                     prompt: criticPrompt
-                }, { organizationId: auth.organizationId, agentName: "grant-scout-critic" })
+                }, { organizationId: auth.organizationId, agentName: "grant-scout-critic" }) as { object: z.infer<typeof CriticSchema> }
 
                 if (!criticResult.object.passed) {
                     logger.info("Critic triggered refinement", { critique: criticResult.object.critique })
@@ -266,8 +266,8 @@ export const processGrantMatch = traced(
                     logger.info("Critic approved draft")
                     confidenceScore = 0.92
                 }
-            } catch (expect) {
-                logger.warn("Critic step failed, using original draft", expect)
+            } catch (_err: unknown) {
+                logger.warn("Critic step failed, using original draft", { error: String(_err) })
             }
 
             const object = {

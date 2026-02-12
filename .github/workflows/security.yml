@@ -1,0 +1,150 @@
+# =============================================================================
+# Security Pipeline — WonLink AI Automation Agency
+# =============================================================================
+# Weekly + on dependency changes: deep audit, license check, secret scan.
+# =============================================================================
+
+name: Security
+
+on:
+  schedule:
+    # Run every Monday at 09:00 UTC
+    - cron: "0 9 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - "package.json"
+      - "package-lock.json"
+  pull_request:
+    branches: [main]
+    paths:
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch: # Allow manual triggers
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # DEPENDENCY AUDIT — check all deps for known vulnerabilities
+  # ---------------------------------------------------------------------------
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Full npm audit
+        run: |
+          echo "### 🔍 Dependency Audit Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Run audit and capture output
+          npm audit --omit=dev 2>&1 | tee audit-output.txt || true
+
+          # Count by severity
+          CRITICAL=$(npm audit --omit=dev --json 2>/dev/null | node -e "
+            let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+              try { const r=JSON.parse(d); console.log(r.metadata?.vulnerabilities?.critical||0); }
+              catch { console.log('0'); }
+            });" || echo "0")
+
+          HIGH=$(npm audit --omit=dev --json 2>/dev/null | node -e "
+            let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+              try { const r=JSON.parse(d); console.log(r.metadata?.vulnerabilities?.high||0); }
+              catch { console.log('0'); }
+            });" || echo "0")
+
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+
+          # Fail on critical vulnerabilities
+          if [ "$CRITICAL" -gt "0" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "❌ **$CRITICAL critical vulnerabilities found!**" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ No critical vulnerabilities found." >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # SECRET SCAN — prevent accidental secret commits
+  # ---------------------------------------------------------------------------
+  secrets:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for secrets
+        run: |
+          echo "### 🔐 Secret Detection Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          FOUND=0
+
+          # Common secret patterns
+          PATTERNS=(
+            'SUPABASE_SERVICE_ROLE_KEY\s*[:=]\s*["\x27]?eyJ'
+            'sk[-_]live[-_][a-zA-Z0-9]{20,}'
+            'OPENAI_API_KEY\s*[:=]\s*["\x27]?sk-'
+            'ANTHROPIC_API_KEY\s*[:=]\s*["\x27]?sk-ant-'
+            'GOOGLE_API_KEY\s*[:=]\s*["\x27]?AIza'
+            'password\s*[:=]\s*["\x27][^"\x27]{8,}'
+          )
+
+          for pattern in "${PATTERNS[@]}"; do
+            # Search in tracked files only, excluding lock files and test files
+            MATCHES=$(git grep -lP "$pattern" -- ':!package-lock.json' ':!*.test.ts' ':!*.test.tsx' ':!.env.example' 2>/dev/null || true)
+            if [ -n "$MATCHES" ]; then
+              echo "::error::Potential secret found matching pattern in: $MATCHES"
+              FOUND=$((FOUND + 1))
+            fi
+          done
+
+          if [ "$FOUND" -gt "0" ]; then
+            echo "❌ **$FOUND potential secret pattern(s) detected.**" >> $GITHUB_STEP_SUMMARY
+            echo "Review the files listed in the error annotations above." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          echo "✅ No secrets detected in codebase." >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # DEPENDENCY FRESHNESS — check for outdated packages
+  # ---------------------------------------------------------------------------
+  outdated:
+    name: Dependency Freshness
+    runs-on: ubuntu-latest
+    # Only run on schedule (weekly), not on every PR
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Check outdated packages
+        run: |
+          echo "### 📦 Outdated Packages Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          npm outdated 2>&1 | tee -a $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
