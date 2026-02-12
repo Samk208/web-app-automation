@@ -24,6 +24,13 @@ const eslintConfig = defineConfig([
       // Pre-existing React patterns that need careful refactoring
       // TODO: Fix these and re-enable as errors
       "react-hooks/set-state-in-effect": "warn",
+      // Allow @ts-nocheck for orchestrator file (LangGraph type compat)
+      // TODO: Remove once LangGraph types are fixed
+      "@typescript-eslint/ban-ts-comment": ["warn", {
+        "ts-nocheck": "allow-with-description",
+        "ts-expect-error": "allow-with-description",
+        "minimumDescriptionLength": 10,
+      }],
     },
   },
 
