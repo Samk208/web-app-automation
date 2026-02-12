@@ -1,9 +1,14 @@
 # =============================================================================
 # Deploy Pipeline — WonLink AI Automation Agency
 # =============================================================================
-# Deploys to Vercel on merge to main (production) or on PR (preview).
-# Requires VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID as repo secrets.
-# If these are not configured, the deploy jobs are skipped gracefully.
+# Deploys to Netlify on merge to main (production) or on PR (preview).
+# Requires NETLIFY_AUTH_TOKEN and NETLIFY_SITE_ID as repo secrets.
+# If not configured, deploy jobs are skipped gracefully.
+#
+# To set up:
+#   1. Create a Netlify personal access token at https://app.netlify.com/user/applications#personal-access-tokens
+#   2. Get your Site ID from Netlify > Site configuration > General > Site ID
+#   3. Add both as GitHub repo secrets: NETLIFY_AUTH_TOKEN, NETLIFY_SITE_ID
 # =============================================================================
 
 name: Deploy
@@ -20,12 +25,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  NODE_VERSION: "20"
+  NEXT_TELEMETRY_DISABLED: 1
 
 jobs:
   # ---------------------------------------------------------------------------
-  # PREVIEW DEPLOY — on pull requests
+  # PREVIEW DEPLOY — on pull requests (Netlify Deploy Preview)
   # ---------------------------------------------------------------------------
   deploy-preview:
     name: Deploy Preview
@@ -37,12 +42,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check Vercel secrets
+      - name: Check Netlify secrets
         id: check-secrets
         run: |
-          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+          if [ -z "${{ secrets.NETLIFY_AUTH_TOKEN }}" ] || [ -z "${{ secrets.NETLIFY_SITE_ID }}" ]; then
             echo "configured=false" >> $GITHUB_OUTPUT
-            echo "::warning::VERCEL_TOKEN not configured. Skipping preview deploy."
+            echo "::warning::NETLIFY_AUTH_TOKEN or NETLIFY_SITE_ID not configured. Skipping preview deploy."
           else
             echo "configured=true" >> $GITHUB_OUTPUT
           fi
@@ -50,29 +55,51 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.check-secrets.outputs.configured == 'true'
         with:
-          node-version: "20"
+          node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
-      - name: Install Vercel CLI
+      - name: Install dependencies
         if: steps.check-secrets.outputs.configured == 'true'
-        run: npm i -g vercel@latest
+        run: npm ci
 
-      - name: Pull Vercel environment
+      - name: Install Netlify CLI
         if: steps.check-secrets.outputs.configured == 'true'
-        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+        run: npm i -g netlify-cli
 
-      - name: Build preview
+      - name: Build for Netlify
         if: steps.check-secrets.outputs.configured == 'true'
-        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+        run: netlify build
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          # Stub env vars needed at build time
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co' }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder' }}
+          NEXT_PUBLIC_SITE_URL: ${{ vars.PRODUCTION_URL || 'https://wonlink.ai' }}
 
       - name: Deploy preview
         id: deploy
         if: steps.check-secrets.outputs.configured == 'true'
         run: |
-          URL=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+          OUTPUT=$(netlify deploy --json 2>&1) || true
+          URL=$(echo "$OUTPUT" | node -e "
+            let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+              try { console.log(JSON.parse(d).deploy_url); }
+              catch { console.log(''); }
+            });
+          ")
+
+          if [ -z "$URL" ]; then
+            echo "::warning::Could not parse deploy URL from Netlify output"
+            URL="https://app.netlify.com"
+          fi
+
           echo "url=$URL" >> $GITHUB_OUTPUT
           echo "### 🔗 Preview Deployment" >> $GITHUB_STEP_SUMMARY
           echo "**URL:** $URL" >> $GITHUB_STEP_SUMMARY
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
 
       # Post the preview URL as a PR comment
       - name: Comment preview URL on PR
@@ -81,7 +108,7 @@ jobs:
         with:
           script: |
             const url = '${{ steps.deploy.outputs.url }}';
-            const body = `### 🚀 Preview Deployment Ready\n\n**URL:** ${url}\n\n> Auto-deployed by CI on commit \`${context.sha.substring(0, 7)}\``;
+            const body = `### 🚀 Preview Deployment Ready\n\n**URL:** ${url}\n\n> Auto-deployed to Netlify on commit \`${context.sha.substring(0, 7)}\``;
 
             // Find existing bot comment to update instead of spamming
             const { data: comments } = await github.rest.issues.listComments({
@@ -123,12 +150,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check Vercel secrets
+      - name: Check Netlify secrets
         id: check-secrets
         run: |
-          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+          if [ -z "${{ secrets.NETLIFY_AUTH_TOKEN }}" ] || [ -z "${{ secrets.NETLIFY_SITE_ID }}" ]; then
             echo "configured=false" >> $GITHUB_OUTPUT
-            echo "::warning::VERCEL_TOKEN not configured. Skipping production deploy."
+            echo "::warning::NETLIFY_AUTH_TOKEN or NETLIFY_SITE_ID not configured. Skipping production deploy."
           else
             echo "configured=true" >> $GITHUB_OUTPUT
           fi
@@ -136,29 +163,50 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.check-secrets.outputs.configured == 'true'
         with:
-          node-version: "20"
+          node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
-      - name: Install Vercel CLI
+      - name: Install dependencies
         if: steps.check-secrets.outputs.configured == 'true'
-        run: npm i -g vercel@latest
+        run: npm ci
 
-      - name: Pull Vercel environment
+      - name: Install Netlify CLI
         if: steps.check-secrets.outputs.configured == 'true'
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        run: npm i -g netlify-cli
 
-      - name: Build production
+      - name: Build for Netlify (production)
         if: steps.check-secrets.outputs.configured == 'true'
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        run: netlify build
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SITE_URL: ${{ vars.PRODUCTION_URL || 'https://wonlink.ai' }}
 
       - name: Deploy to production
         id: deploy
         if: steps.check-secrets.outputs.configured == 'true'
         run: |
-          URL=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
+          OUTPUT=$(netlify deploy --prod --json 2>&1) || true
+          URL=$(echo "$OUTPUT" | node -e "
+            let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+              try { const j=JSON.parse(d); console.log(j.url || j.deploy_url || ''); }
+              catch { console.log(''); }
+            });
+          ")
+
+          if [ -z "$URL" ]; then
+            echo "::warning::Could not parse deploy URL from Netlify output"
+            URL="https://app.netlify.com"
+          fi
+
           echo "url=$URL" >> $GITHUB_OUTPUT
           echo "### 🚀 Production Deployment" >> $GITHUB_STEP_SUMMARY
           echo "**URL:** $URL" >> $GITHUB_STEP_SUMMARY
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
 
   # ---------------------------------------------------------------------------
   # POST-DEPLOY SMOKE — basic health check after production deploy
@@ -172,7 +220,7 @@ jobs:
       - name: Check deploy secrets
         id: check-secrets
         run: |
-          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+          if [ -z "${{ secrets.NETLIFY_AUTH_TOKEN }}" ]; then
             echo "configured=false" >> $GITHUB_OUTPUT
           else
             echo "configured=true" >> $GITHUB_OUTPUT
@@ -180,15 +228,23 @@ jobs:
 
       - name: Wait for deployment propagation
         if: steps.check-secrets.outputs.configured == 'true'
-        run: sleep 15
+        run: sleep 20
 
       - name: Health check
         if: steps.check-secrets.outputs.configured == 'true' && vars.PRODUCTION_URL
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ vars.PRODUCTION_URL }}" || echo "000")
-          echo "HTTP Status: $STATUS"
-          if [ "$STATUS" -lt "200" ] || [ "$STATUS" -ge "400" ]; then
-            echo "::error::Health check failed with status $STATUS"
-            exit 1
-          fi
-          echo "✅ Health check passed (HTTP $STATUS)"
+          RETRIES=3
+          for i in $(seq 1 $RETRIES); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ vars.PRODUCTION_URL }}" || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" -ge "200" ] && [ "$STATUS" -lt "400" ]; then
+              echo "✅ Health check passed (HTTP $STATUS)"
+              exit 0
+            fi
+            if [ "$i" -lt "$RETRIES" ]; then
+              echo "Retrying in 10s..."
+              sleep 10
+            fi
+          done
+          echo "::error::Health check failed after $RETRIES attempts"
+          exit 1

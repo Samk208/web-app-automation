@@ -1,0 +1,41 @@
+# =============================================================================
+# Netlify Configuration — WonLink AI Automation Agency
+# =============================================================================
+# Next.js 16 on Netlify with the Next.js Runtime (auto-detected).
+# See: https://docs.netlify.com/frameworks/next-js/overview/
+# =============================================================================
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+# Environment variables set at build time
+[build.environment]
+  NODE_VERSION = "20"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+# Redirect all requests to the Next.js handler (SSR/ISR)
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Headers for security hardening
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    X-XSS-Protection = "1; mode=block"
+
+# Cache static assets aggressively
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Cache images
+[[headers]]
+  for = "/images/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400, stale-while-revalidate=604800"
